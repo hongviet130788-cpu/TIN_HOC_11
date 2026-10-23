@@ -44,7 +44,7 @@ const norm=s=>String(s||'').toLowerCase().normalize('NFC').replace(/[^\p{L}\p{N}
 const fmt=s=>Math.floor(Math.max(s,0)/60)+':'+String(Math.max(s,0)%60).padStart(2,'0');
 const rcode=p=>p+Math.random().toString(36).slice(2,6).toUpperCase();
 const say=t=>{try{const u=new SpeechSynthesisUtterance(t);u.lang='vi-VN';speechSynthesis.cancel();speechSynthesis.speak(u)}catch(e){}};
-const CFG={url:'https://YOUR-PROJECT.supabase.co',key:'YOUR-ANON-KEY'}; // điền theo README (chỉ dùng anon key)
+const CFG={url:'https://ppwvvlvyiepwyokzlbyf.supabase.co',key:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwd3Z2bHZ5aWVwd3lva3psYnlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI3MTIwMTksImV4cCI6MjEwODI4ODAxOX0.UXo-wY8kt_husYjYobuVHmVRtyB_56a9Vi5BCBs86dY'}; // điền theo README (chỉ dùng anon key)
 let SB;
 const col=n=>({
  doc:id=>({
