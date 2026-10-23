@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://*.supabase.co; img-src 'self' data: blob:; base-uri 'none'; object-src 'none'">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <title>Tin học THPT – Trò chơi & Kiểm tra</title>
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -42,18 +44,30 @@ const norm=s=>String(s||'').toLowerCase().normalize('NFC').replace(/[^\p{L}\p{N}
 const fmt=s=>Math.floor(Math.max(s,0)/60)+':'+String(Math.max(s,0)%60).padStart(2,'0');
 const rcode=p=>p+Math.random().toString(36).slice(2,6).toUpperCase();
 const say=t=>{try{const u=new SpeechSynthesisUtterance(t);u.lang='vi-VN';speechSynthesis.cancel();speechSynthesis.speak(u)}catch(e){}};
-const col=n=>S.db.collection(n);
+const CFG={url:'https://YOUR-PROJECT.supabase.co',key:'YOUR-ANON-KEY'}; // điền theo README (chỉ dùng anon key)
+let SB;
+const col=n=>({
+ doc:id=>({
+  async get(){const q=n=='config'?SB.from('roster').select('names').eq('id',1):SB.from(n).select('data').eq(n=='results'?'id':'code',id);
+   const{data,error}=await q.maybeSingle();if(error)throw error;return{exists:!!data,data:()=>n=='config'?data:data.data}},
+  async set(o){const row=n=='config'?{id:1,names:o.names}:n=='results'?{id,code:o.code,data:o}:{code:id,data:o};
+   const{error}=await(n=='results'?SB.from(n).insert(row):SB.from(n=='config'?'roster':n).upsert(row));if(error&&error.code!='23505')throw error}}),
+ where:(f,op,v)=>({async get(){const{data,error}=await SB.from(n).select('data').eq(f,v);if(error)throw error;return{docs:(data||[]).map(r=>({data:()=>r.data}))}}}),
+ async get(){const{data,error}=await SB.from(n).select('data');if(error)throw error;return{docs:(data||[]).map(r=>({data:()=>r.data}))}}});
+const dl=(f,d)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([d],{type:'text/plain;charset=utf-8'}));a.download=f;a.click()};
+const isAdmin=async()=>{const{data}=await SB.from('admins').select('uid').maybeSingle();return !!data};
 async function boot(){
- for(let i=0;i<20&&!window.claude;i++)await new Promise(r=>setTimeout(r,200));
- try{S.db=await claude.use('db');S.user=await claude.use('user');S.sample=await claude.use('sample');S.dl=await claude.use('downloads')}catch(e){}
- if(!S.db){A().innerHTML='<div class="card"><h1>Cần đăng nhập</h1><p>Hãy mở trang này bằng tài khoản được mời để dùng trò chơi và bài kiểm tra.</p></div>';return}
- S.owner=S.user?await S.user.isOwner():false;
- const h=location.hash.slice(1);
- if(S.owner&&!h)teacher();else student(h.toUpperCase());
-}
+ if(CFG.url.includes('YOUR')){A().innerHTML='<div class="card"><h1>Chưa cấu hình</h1><p>Mở index.html và điền CFG.url, CFG.key (xem README).</p></div>';return}
+ SB=supabase.createClient(CFG.url,CFG.key);S.db=true;
+ const h=location.hash.slice(1).toUpperCase(),{data:{session}}=await SB.auth.getSession();
+ if(session&&!session.user.is_anonymous&&!h&&await isAdmin()){S.owner=true;return teacher()}
+ if(h)return enter(h);landing()}
+function landing(){A().innerHTML=`<h1>Tin học THPT</h1><div class="card"><h2>Học sinh</h2><label>Mã tham gia</label><input id="lc" autocomplete="off"><p><button onclick="enter($('#lc').value.trim().toUpperCase())">Vào</button></p></div><div class="card"><h2>Quản trị (giáo viên)</h2><label>Email</label><input id="ae" type="email" autocomplete="username"><label>Mật khẩu</label><input id="ap" type="password" autocomplete="current-password"><p><button onclick="adminLogin()">Đăng nhập</button> <span id="am" class="err"></span></p></div>`}
+async function adminLogin(){const{error}=await SB.auth.signInWithPassword({email:$('#ae').value.trim(),password:$('#ap').value});if(error)return $('#am').textContent='Sai email hoặc mật khẩu';if(!await isAdmin()){await SB.auth.signOut();return $('#am').textContent='Tài khoản không có quyền quản trị'}S.owner=true;teacher()}
+async function enter(code){if(!code)return;const{data:{session}}=await SB.auth.getSession();if(!session){const{error}=await SB.auth.signInAnonymously();if(error){A().innerHTML='<div class="card"><p class="err">Không đăng nhập được: '+esc(error.message)+'</p></div>';return}}student(code)}
 /* ---------- GIÁO VIÊN ---------- */
 function teacher(){
- A().innerHTML=`<h1>Bàn làm việc của giáo viên</h1><p class="mu">Tin học THPT · AI soạn trò chơi khởi động và đề kiểm tra bám SGK</p>
+ A().innerHTML=`<h1>Bàn làm việc của giáo viên</h1><button class="alt" onclick="SB.auth.signOut().then(()=>location.reload())">Đăng xuất</button><p class="mu">Tin học THPT · AI soạn trò chơi khởi động và đề kiểm tra bám SGK</p>
  <div class="tabs"><button id="t-g" onclick="tab('g')">Trò chơi</button><button id="t-t" onclick="tab('t')">Bài kiểm tra</button><button id="t-r" onclick="tab('r')">Kết quả</button></div>
  <div class="card"><label>Danh sách học sinh (mỗi dòng một tên)</label><textarea id="ros" rows="4" placeholder="Nguyễn Văn An&#10;Trần Thị Bình"></textarea><button class="alt" onclick="saveRos()" style="margin-top:8px">Lưu danh sách lớp</button> <span id="rm" class="mu"></span></div>
  <div id="pane"></div>`;
@@ -90,7 +104,7 @@ function pre(){const m={a:{t:[8,1,2,0],l:[40,30,30],m:20},b:{t:[12,2,3,1],l:[40,
 function share(code,extra=''){const b=$('#base').value.replace(/#.*/,'');try{localStorage.base=b}catch(e){}const u=b+'#'+code;
  $('#share').innerHTML=`<div class="card"><p>Mã tham gia: <span class="code">${code}</span></p><input readonly value="${esc(u)}" onclick="this.select()"><div id="qr" style="margin:12px 0"></div>${extra}<p class="mu">Học sinh mở link, chọn tên trong danh sách lớp rồi vào làm.</p></div>`;
  try{new QRCode($('#qr'),{text:u,width:150,height:150})}catch(e){}}
-async function ai(prompt){if(!S.sample)throw{message:'AI chưa sẵn sàng'};return await S.sample.json(prompt,{modelTier:'complex'})}
+async function ai(p){const{data,error}=await SB.functions.invoke('generate',{body:{prompt:p}});if(error)throw error;return data}
 const names=async()=>{const r=await col('config').doc('roster').get();return r.exists?r.data().names||[]:[]};
 async function mkGame(){
  const b=$('#gb');b.disabled=true;b.textContent='AI đang soạn…';
@@ -112,7 +126,7 @@ async function mkTest(){
  catch(e){$('#share').innerHTML='<p class="err">Không tạo được: '+esc(e.message||e.code)+'</p>'}
  b.disabled=false;b.textContent='Tạo đề bằng AI'}
 function txtTest(d){let i=0;return `ĐỀ KIỂM TRA TIN HỌC ${d.grade||''}\nNội dung: ${d.les}\nThời gian: ${d.time} phút\n\n`+d.qs.map(q=>{i++;let s=`Câu ${i} (${LV[q.l]||''}): ${q.q}\n`;if(q.t=='mc')s+=q.o.map((o,j)=>'  '+'ABCD'[j]+'. '+o).join('\n')+'\n';if(q.t=='tf')s+=q.s.map((m,j)=>'  '+'abcd'[j]+') '+m.x).join('\n')+'\n';return s}).join('\n')+'\n--- ĐÁP ÁN ---\n'+d.qs.map((q,i)=>`Câu ${i+1}: `+(q.t=='mc'?'ABCD'[q.a]:q.t=='tf'?q.s.map(m=>m.a?'Đ':'S').join(' '):(q.k||[]).join(' / '))).join('\n')}
-async function dlTest(){try{await S.dl.save({filename:'de-kiem-tra-'+LAST.code+'.txt',data:txtTest(LAST)})}catch(e){}}
+async function dlTest(){dl('de-kiem-tra-'+LAST.code+'.txt',txtTest(LAST))}
 async function codes(){const a=[...(await col('tests').get()).docs,...(await col('games').get()).docs].map(d=>d.data()).sort((x,y)=>y.at-x.at);
  $('#rc').innerHTML='<option value="">— chọn —</option>'+a.map(d=>`<option value="${d.code}">${d.code} · ${esc(d.les).slice(0,40)}</option>`).join('')}
 const getLinks=()=>($('#lk').value||'').split('\n').map(s=>{const p=s.split('|'),u=(p.length>1?p.slice(1).join('|'):p[0]).trim();return{n:p.length>1?p[0].trim()||u:u,u}}).filter(x=>/^https:\/\//i.test(x.u));
@@ -126,7 +140,7 @@ async function loadRes(){const c=$('#rc').value;if(!c)return;const rs=(await col
  ${bands.map(([n,l,h])=>{const k=sc.filter(x=>x>=l&&x<h).length;return `<div class="bar"><span style="width:80px">${n}</span><i style="width:${k/rs.length*60}%"></i>${k} (${Math.round(k/rs.length*100)}%)</div>`}).join('')}${lv}
  <div class="wrap"><table><tr><th>Học sinh</th><th>Nhóm</th><th>Điểm</th><th>Nhận xét</th></tr>${rs.sort((a,b)=>b.score-a.score).map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(r.group||'')}</td><td>${r.score}</td><td>${r.kind=='test'?cm(r.score):''}</td></tr>`).join('')}</table></div>
  <p><button class="alt" onclick='dlCsv(${JSON.stringify(c)})'>Tải bảng điểm (.csv)</button></p>`;window.RS=rs}
-async function dlCsv(c){try{await S.dl.save({filename:'ket-qua-'+c+'.csv',data:'\ufeffHọ tên,Nhóm,Điểm\n'+RS.map(r=>`"${r.name}","${r.group||''}",${r.score}`).join('\n')})}catch(e){}}
+async function dlCsv(c){dl('ket-qua-'+c+'.csv','\ufeffHọ tên,Nhóm,Điểm\n'+RS.map(r=>`"${r.name}","${r.group||''}",${r.score}`).join('\n'))}
 /* ---------- HỌC SINH ---------- */
 async function student(code){
  const ns=await names();
